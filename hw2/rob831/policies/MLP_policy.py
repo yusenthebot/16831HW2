@@ -147,8 +147,17 @@ class MLPPolicyPG(MLPPolicy):
         # HINT4: use self.optimizer to optimize the loss. Remember to
             # 'zero_grad' first
 
-        raise NotImplementedError
+        if self.discrete:
+            actions = actions.long()
 
+        self.optimizer.zero_grad()
+        action_distribution = self(observations)
+        log_probs = action_distribution.log_prob(actions)
+        policy_loss = -(log_probs * advantages).mean()
+        policy_loss.backward()
+        self.optimizer.step()
+
+        baseline_loss_value = None
         if self.nn_baseline:
             ## TODO: update the neural network baseline using the q_values as
             ## targets. The q_values should first be normalized to have a mean
@@ -158,11 +167,21 @@ class MLPPolicyPG(MLPPolicy):
                 ## updating the baseline. Remember to 'zero_grad' first
             ## HINT2: You will need to convert the targets into a tensor using
                 ## ptu.from_numpy before using it in the loss
-            raise NotImplementedError
+            assert q_values is not None
+            targets = normalize(q_values, np.mean(q_values), np.std(q_values))
+            targets = ptu.from_numpy(targets)
+            baseline_predictions = self.baseline(observations).squeeze()
+            baseline_loss = self.baseline_loss(baseline_predictions, targets)
+            self.baseline_optimizer.zero_grad()
+            baseline_loss.backward()
+            self.baseline_optimizer.step()
+            baseline_loss_value = ptu.to_numpy(baseline_loss)
 
         train_log = {
             'Training Loss': ptu.to_numpy(policy_loss),
         }
+        if baseline_loss_value is not None:
+            train_log['Baseline Loss'] = baseline_loss_value
         return train_log
 
     def run_baseline_prediction(self, observations):
